@@ -598,16 +598,20 @@ __vm_run(struct bpf_vm_prog *prog)
     return BPF_VM_ACTION_ABORTED;
 }
 
-static __noinline int
+static __always_inline int
 run_vm(void)
 {
+    u32 prog_idx, prev_prog_idx;
     struct bpf_vm_prog *prog;
     enum bpf_vm_action ret;
-    u32 prog_idx, prev_prog_idx = 0;
 
-    prog = __get_bpf_vm_prog(0);
-    if (unlikely(!prog))
-        return BPF_OK;
+    prev_prog_idx = prog_idx = (u32) (vm->reg_ip >> 32);
+    prog = __get_bpf_vm_prog(prog_idx);
+    if (unlikely(!prog)) {
+        vm->state = BPF_VM_STATE_VM_INTERNAL_ERR;
+        bpf_printk("bpf_vm: invalid prog_idx: %u\n", prog_idx);
+        return BPF_VM_ACTION_ABORTED;
+    }
 
     for (u32 i = 0; i < 100; i++) {
         ret = __vm_run(prog);
@@ -628,17 +632,42 @@ run_vm(void)
         prev_prog_idx = prog_idx;
     }
 
-    return BPF_VM_ACTION_FINISH;
+    return BPF_VM_ACTION_CONTINUE;
+}
+
+struct bpf_vm_ctx {
+    enum bpf_vm_action action;
+};
+
+static long
+__vm_loop_callback(__u32 index, struct bpf_vm_ctx *ctx)
+{
+    if (!ctx)
+        return 1;
+
+    ctx->action = run_vm();
+
+    return ctx->action == BPF_VM_ACTION_CONTINUE ? 0 : 1;
 }
 
 static __always_inline bool
-__vm_entry(void *ctx)
+__vm_loop(void)
+{
+    struct bpf_vm_ctx ctx = {};
+
+    bpf_loop(BPF_MAX_LOOPS, __vm_loop_callback, &ctx, 0);
+
+    return ctx.action == BPF_VM_ACTION_FINISH;
+}
+
+static __always_inline bool
+__vm_entry(void)
 {
     bool ret;
 
     __vm_init(vm);
 
-    ret = run_vm() == BPF_VM_ACTION_FINISH;
+    ret = __vm_loop();
 
     bpf_printk("bpf_vm: R0=%llu state=%d\n", BPF_R0, vm->state);
 
@@ -663,7 +692,7 @@ int bpf_vm_xdp(struct xdp_md *ctx)
     if (likely(iph->ttl != 1))
         return XDP_PASS;
 
-    return __vm_entry(ctx) ? XDP_PASS : XDP_ABORTED;
+    return __vm_entry() ? XDP_PASS : XDP_ABORTED;
 }
 
 char __license[] SEC("license") = "GPL";

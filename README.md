@@ -286,9 +286,9 @@ But, without strict verification, the vm is able to execute any bpf code which
 is compiled by clang. As a result, it is able to execute malicious bpf code,
 which is compiled by clang, too.
 
-Can this vm run for very long time to execute many bpf instructions?
+Can this vm execute many bpf instructions?
 
-Yes, by utilising *issue* of bpf subsystem.
+Yes, by using `bpf_loop()` helper to run for long time.
 
 ## Comments
 
@@ -296,3 +296,8 @@ eBPF vm on eBPF is a really insteresting idea. I've implemented its demo to run
 the above Fibonacci numbers calculating bpf code.
 
 Just for fun.
+
+## Licenses
+
+**Apache 2.0** license for Go code.
+**GPL 2.0** license for bpf code.

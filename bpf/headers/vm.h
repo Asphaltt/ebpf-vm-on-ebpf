@@ -53,6 +53,8 @@ __get_bpf_vm_stack(void)
 }
 
 enum bpf_vm_state {
+    BPF_VM_STATE_UNSPEC,
+
     BPF_VM_STATE_VM_INTERNAL_ERR,
 
     BPF_VM_STATE_INSN_CALL,
@@ -78,9 +80,11 @@ __vm_init(struct bpf_vm *vm)
 {
     vm->reg_ip = 0;
     vm->func_call_depth = 0;
+    vm->state = BPF_VM_STATE_UNSPEC;
 
     /* -1 is for calculating offset conveniently at LOAD_STACK() and
-       STORE_STACK() in vm.c. The offset is in range [0, BPF_MAX_STACK). */
+     * STORE_STACK() in vm.c. The offset is in range [0, BPF_MAX_STACK).
+     */
     vm->stack_curr_depth = -1;
 }
 
