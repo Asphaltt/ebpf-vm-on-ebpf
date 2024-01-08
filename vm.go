@@ -88,6 +88,7 @@ func runVm() {
 	defer xdp.Close()
 
 	log.Printf("bpf-vm is running on %s\n", flags.device)
+	defer readStack(&obj)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
