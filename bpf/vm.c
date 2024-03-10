@@ -87,12 +87,19 @@ __get_stack(void)
     } while(0)
 
 static __noinline enum bpf_vm_action
-__exec_insn(struct bpf_insn *insn, struct bpf_vm_prog *prog)
+__exec_insn(struct bpf_vm_prog *prog, u32 idx)
 {
+    struct bpf_insn *insn, *next;
     u32 insn_idx, call_depth;
-    struct bpf_insn *next;
     int stack_depth;
 
+    if (idx >= BPF_MAX_PROG_INSNS) {
+        vm->state = BPF_VM_STATE_VM_INTERNAL_ERR;
+        bpf_printk("bpf_vm: invalid insn_idx: %u (cnt %d)\n", idx, prog->insns_cnt);
+        return BPF_VM_ACTION_ABORTED;
+    }
+
+    insn = &prog->insns[idx];
     switch (insn->code) {
     /* ALU (shifts) */
 #define SHT(OPCODE, OP)                         \
@@ -407,20 +414,20 @@ __exec_insn(struct bpf_insn *insn, struct bpf_vm_prog *prog)
             return BPF_VM_ACTION_FINISH;
 
         call_depth = --vm->func_call_depth;
-        if (likely(call_depth < BPF_MAX_PROGS)) {
-            // restore IP
-            vm->reg_ip = vm->func_call_stack[call_depth];
-            vm->func_call_stack[call_depth] = 0;
-
-            // restore stack depth
-            stack_depth = vm->stack_depth_stack[call_depth];
-            vm->stack_depth_stack[call_depth] = 0;
-            vm->stack_curr_depth = stack_depth;
-        } else {
+        if (unlikely(call_depth >= BPF_MAX_PROGS)) {
             vm->state = BPF_VM_STATE_VM_INTERNAL_ERR;
             bpf_printk("bpf_vm: invalid func_call_depth: %u\n", vm->func_call_depth);
             return BPF_VM_ACTION_ABORTED;
         }
+
+        // restore IP
+        vm->reg_ip = vm->func_call_stack[call_depth];
+        vm->func_call_stack[call_depth] = 0;
+
+        // restore stack depth
+        stack_depth = vm->stack_depth_stack[call_depth];
+        vm->stack_depth_stack[call_depth] = 0;
+        vm->stack_curr_depth = stack_depth;
         break;
 
     /* JMP */
@@ -577,25 +584,17 @@ static __noinline enum bpf_vm_action
 __vm_run(struct bpf_vm_prog *prog)
 {
     u32 insn_idx;
-    // u64 insn;
 
     insn_idx = (u32) vm->reg_ip;
 
-    if (unlikely(insn_idx >= prog->insns_cnt || insn_idx >= BPF_MAX_PROG_INSNS)) {
+    if (insn_idx >= prog->insns_cnt) {
         vm->state = BPF_VM_STATE_VM_INTERNAL_ERR;
         bpf_printk("bpf_vm: invalid insn_idx: %u (cnt %d)\n", insn_idx, prog->insns_cnt);
         return BPF_VM_ACTION_ABORTED;
     }
 
-    if (likely(insn_idx < BPF_MAX_PROG_INSNS)) {
-        // insn = *(u64 *) &prog->insns[insn_idx];
-        // bpf_printk("bpf_vm: insn_idx: %u/%d, insn: 0x%016llx\n", insn_idx, prog->insns_cnt, insn);
-
-        vm->reg_ip++;
-        return __exec_insn(&prog->insns[insn_idx], prog);
-    }
-
-    return BPF_VM_ACTION_ABORTED;
+    vm->reg_ip++;
+    return __exec_insn(prog, insn_idx);
 }
 
 static __always_inline int
